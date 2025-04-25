@@ -1,0 +1,262 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>批量域名跳转检查器</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <style>
+    body {
+      background-color: #f3f4f6;
+      min-height: 100vh;
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+    }
+    .container {
+      position: fixed;
+      top: 5%; /* 偏上定位 */
+      left: 50%;
+      transform: translateX(-50%); /* 水平居中 */
+      width: 800px; /* 固定宽度 */
+      height: 800px; /* 固定高度 */
+      padding: 1.5rem;
+      background-color: #fff;
+      border-radius: 0.5rem;
+      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+      overflow-y: auto; /* 内容超出时显示滚动条 */
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: bold;
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+    h2 {
+      font-size: 1.25rem;
+      font-weight: bold;
+      margin-bottom: 1rem;
+    }
+    textarea {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    textarea:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px #3b82f6;
+    }
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background-color: #3b82f6;
+      color: #fff;
+      border: none;
+      border-radius: 0.5rem;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #2563eb;
+    }
+    button:disabled {
+      background-color: #9ca3af;
+      cursor: not-allowed;
+    }
+    .error {
+      color: #ef4444;
+      margin-bottom: 1rem;
+    }
+    .results {
+      margin-top: 1.5rem;
+    }
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .export-btn {
+      width: auto;
+      background-color: #22c55e;
+      padding: 0.5rem 1rem;
+    }
+    .export-btn:hover {
+      background-color: #16a34a;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    th {
+      background-color: #e5e7eb;
+    }
+    a {
+      color: #3b82f6;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+    function App() {
+      const [domains, setDomains] = React.useState('');
+      const [results, setResults] = React.useState([]);
+      const [loading, setLoading] = React.useState(false);
+      const [error, setError] = React.useState('');
+
+      function checkRedirect(url) {
+        return new Promise(function(resolve) {
+          if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            url = 'https://' + url;
+          }
+          fetch('http://localhost:5000/check-redirect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url })
+          })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+              resolve({ original: url, final: data.finalUrl, status: data.status });
+            })
+            .catch(function() {
+              resolve({ original: url, final: '错误', status: 'N/A' });
+            });
+        });
+      }
+
+      function handleSubmit(event) {
+        event.preventDefault();
+        setError('');
+        setResults([]);
+        setLoading(true);
+
+        var domainList = domains.split('\n').map(function(d) { return d.trim(); }).filter(function(d) { return d; });
+        if (domainList.length === 0) {
+          setError('请至少输入一个域名。');
+          setLoading(false);
+          return;
+        }
+        if (domainList.length > 500) {
+          setError('一次最多支持500个域名。');
+          setLoading(false);
+          return;
+        }
+
+        // 实时更新结果
+        domainList.forEach(function(domain, index) {
+          checkRedirect(domain).then(function(result) {
+            setResults(function(prevResults) {
+              return prevResults.concat([result]);
+            });
+            // 当所有域名都查询完时，停止加载状态
+            if (index === domainList.length - 1) {
+              setLoading(false);
+            }
+          });
+        });
+      }
+
+      function exportToCSV() {
+        var headers = ['原始URL,最终URL,状态码'];
+        var rows = results.map(function(r) { return `${r.original},${r.final},${r.status}`; });
+        var csvContent = headers.concat(rows).join('\n');
+        var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        var link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = '域名跳转结果.csv';
+        link.click();
+      }
+
+      return React.createElement(
+        'div',
+        { className: 'container' },
+        React.createElement('h1', null, '批量域名跳转检查器'),
+        React.createElement(
+          'div',
+          null,
+          React.createElement('textarea', {
+            id: 'domains',
+            rows: '5',
+            placeholder: '输入域名（每行一个，例如：example.com）',
+            value: domains,
+            onChange: function(e) { setDomains(e.target.value); }
+          })
+        ),
+        error && React.createElement('div', { className: 'error' }, error),
+        React.createElement(
+          'button',
+          {
+            onClick: handleSubmit,
+            disabled: loading
+          },
+          loading ? '检查中...' : '检查跳转'
+        ),
+        results.length > 0 && React.createElement(
+          'div',
+          { className: 'results' },
+          React.createElement(
+            'div',
+            { className: 'results-header' },
+            React.createElement('h2', null, '结果'),
+            React.createElement(
+              'button',
+              { className: 'export-btn', onClick: exportToCSV },
+              '导出为CSV'
+            )
+          ),
+          React.createElement(
+            'table',
+            { id: 'results-table' },
+            React.createElement(
+              'thead',
+              null,
+              React.createElement(
+                'tr',
+                null,
+                React.createElement('th', null, '原始URL'),
+                React.createElement('th', null, '最终URL'),
+                React.createElement('th', null, '状态码')
+              )
+            ),
+            React.createElement(
+              'tbody',
+              { id: 'results-body' },
+              results.map(function(result, index) {
+                return React.createElement(
+                  'tr',
+                  { key: index },
+                  React.createElement('td', null, result.original),
+                  React.createElement(
+                    'td',
+                    null,
+                    result.final === '错误'
+                      ? React.createElement('span', { style: { color: '#ef4444' } }, '错误')
+                      : React.createElement('a', { href: result.final, target: '_blank', rel: 'noopener noreferrer' }, result.final)
+                  ),
+                  React.createElement('td', null, result.status)
+                );
+              })
+            )
+          )
+        )
+      );
+    }
+
+    var root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>
